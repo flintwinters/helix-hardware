@@ -2,19 +2,19 @@
 
 KiCad 10 schematic for a USB powered STM32C071FBP6 with one shared SPI bus. The WIZ850io W5500 module and a **3.3 V, six wire microSD SPI breakout** have separate chip selects. SWD is available for first firmware bring-up.
 
-Open `helix_minimal.kicad_pro` in KiCad. Run `python3 manage.py check` for ERC and physical pad netlist checks; `python3 manage.py make` regenerates the schematic from the connection table. Regeneration needs the KiCad 10 symbol library (`KICAD_SYMBOL_DIR` can point to it); the checked-in schematic and local symbol are self-contained. `make` preserves the KiCad project settings.
+Open `helix_minimal.kicad_pro` in KiCad. Run `python3 manage.py check` for ERC and physical pad netlist checks. `python3 manage.py make` creates the schematic only when it is absent or unchanged; it stops before overwriting KiCad edits. Generation needs the KiCad 10 symbol library (`KICAD_SYMBOL_DIR` can point to it); the checked-in schematic and local symbols are self-contained. `make` preserves the KiCad project settings.
 
 ## Interfaces
 
 | Interface | STM32 pads | Connector pins |
 | --- | --- | --- |
-| SPI1 SCK / MISO / MOSI | PA5 / PA6 / PA7 | WIZ850io J1.4 / J2.6 / J1.3; microSD J4.3 / J4.5 / J4.4 |
+| SPI1 SCK / MISO / MOSI | PA5 / PA6 / PA7 | WIZ850io J1.4 / J2.6 / J1.3; microSD J4.5 / J4.3 / J4.4 |
 | W5500 select / interrupt / reset | PA4 / PA3 / PA0 | WIZ850io J1.5 / J1.6 / J2.5 |
 | microSD select | PA8 | J4.6 |
 | USB D− / D+ | PA11 / PA12 | J1 A7+B7 / A6+B6 |
 | SWDIO / SWCLK / NRST | PA13 / PA14 / PF2 | J5.2 / J5.3 / J5.5 |
 
-J4 is a **project-defined jumper header**, not a claimed footprint for a particular SD module: 1=3V3, 2=GND, 3=CLK, 4=SI/MOSI, 5=SO/MISO, 6=CS. Check the chosen breakout's physical pin order before wiring it. The WIZ850io sockets use its published J1/J2 pin numbering; their relative PCB placement remains to be designed. Firmware should hold WIZ_RST low for at least 500 µs, then wait 50 ms after release before SPI access. Keep both CS lines high while neither device is selected.
+J4 is a **project-defined jumper header**, not a claimed footprint for a particular SD module: 1=GND, 2=3V3, 3=SO/MISO, 4=SI/MOSI, 5=CLK, 6=CS. Check the chosen breakout's physical pin order before wiring it. The WIZ850io sockets use its published J1/J2 pin numbering; their relative PCB placement remains to be designed. Firmware should hold WIZ_RST low for at least 500 µs, then wait 50 ms after release before SPI access. Keep both CS lines high while neither device is selected.
 
 The USB-C receptacle uses separate 5.1 kΩ CC pull-downs and a 3.3 V AP2112K regulator. C1 and C2 are the regulator's required 1 µF input/output capacitors; C3 is the MCU's 100 nF decoupling capacitor. VBUS, +3V3, and GND use KiCad power symbols connected by wires. The board currently has a schematic only: there is no routed PCB, enclosure, firmware, USB ESD protection, or measured power budget. WIZ850io can draw about 141 mA by itself, so USB bus power behavior before configuration needs design review before claiming USB compliance.
 
