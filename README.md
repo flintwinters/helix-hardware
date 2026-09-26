@@ -4,6 +4,17 @@ KiCad 10 schematic for a USB powered STM32C071FBP6 with one shared SPI bus. The 
 
 Open `helix_minimal.kicad_pro` in KiCad. Run `python3 manage.py check` for label lint, ERC, and physical pad netlist checks. `python3 manage.py repair` fixes misplaced component reference/value fields in the existing schematic without rebuilding it. `python3 manage.py build` creates a schematic only when none exists. Building needs the KiCad 10 symbol library (`KICAD_SYMBOL_DIR` can point to it); the checked-in schematic and local symbols are self-contained.
 
+## PCB routing
+
+The PCB was routed with pinned [KiCadRoutingTools](https://github.com/drandyhaas/KiCadRoutingTools) (`git submodule update --init`). The two layer route uses 0.15 mm tracks and clearance, 0.40/0.20 mm vias, and **no size escalation**; those limits are recorded in Board Setup. To reroute after changing placement, preserve the board, then run:
+
+```sh
+python3 vendor/KiCadRoutingTools/py_router/route_planes.py helix_minimal.kicad_pcb .recovery/planes.kicad_pcb --nets GND --plane-layers B.Cu --no-fix-drc-settings
+python3 vendor/KiCadRoutingTools/py_router/route.py .recovery/planes.kicad_pcb .recovery/routed.kicad_pcb --nets '*' --layers F.Cu B.Cu --track-width 0.15 --clearance 0.15 --via-size 0.4 --via-drill 0.2 --escalation off --fab-tier advanced --strict-sizes --routing-clearance-margin 0.02 --no-fix-drc-settings
+```
+
+Review the candidate before replacing the board. KiCad's DRC reports zero copper errors, zero unconnected items, and zero schematic parity issues on the committed route. Its 30 remaining messages concern footprint library divergence and existing silk/text placement. Six routed vias are in component pads and need filled and capped fabrication (IPC-4761 Type VII). Confirm this process and the WIZ850io module mechanics before fabrication.
+
 ## Interfaces
 
 | Interface | STM32 pads | Connector pins |
