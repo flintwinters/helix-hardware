@@ -2,6 +2,7 @@
 """Check or surgically repair a KiCad schematic; build a new one separately."""
 
 from pathlib import Path
+import hashlib
 import json
 import math
 import os
@@ -397,9 +398,61 @@ def check():
           f'{len(required)} critical nets verified against exported netlist')
 
 
+def route():
+    """Reroute signals from the current board on a recoverable copy."""
+    board = ROOT / 'helix_minimal.kicad_pcb'
+    digest = hashlib.sha256(board.read_bytes()).hexdigest()[:12]
+    work = ROOT / '.recovery' / f'turn_cost_4000_{digest}'
+    work.mkdir(parents=True, exist_ok=True)
+    original = work / 'original.kicad_pcb'
+    if not original.exists():
+        shutil.copy2(board, original)
+    elif original.read_bytes() != board.read_bytes():
+        raise SystemExit(f'Board changed since route backup; inspect {work} first')
+    tree = parse(original.read_text())
+    clean = [x for x in tree if not (isinstance(x, list) and x[0] in ('segment', 'via'))]
+    source = work / 'clean.kicad_pcb'
+    source.write_text(emit(clean) + '\n')
+    shutil.copy2(ROOT / 'helix_minimal.kicad_pro', work / 'clean.kicad_pro')
+    stages = [
+        ('swclk', ['/SWCLK'], '0.3', True, False),
+        ('ordinary', ['+3V3', '/NRST', '/PICO_CS', '/SD_CS', '/SPI_MISO',
+                      '/SPI_MOSI', '/SPI_SCK', '/SWDIO', '/WIZ_CS', '/WIZ_INT',
+                      '/WIZ_RST'], '0.3', True, False),
+        ('usb', ['/USB_DM', '/USB_DP', '/CC1', '/CC2', 'VBUS'], '0.15', False, False),
+        ('miso', ['/SPI_MISO'], '0.3', True, True),
+        ('power', ['+3V3'], '0.3', True, True),
+    ]
+    router = ROOT / 'vendor/KiCadRoutingTools/py_router/route.py'
+    for name, nets, width, clearance, force in stages:
+        output = work / f'{name}.kicad_pcb'
+        args = ['python3', str(router), str(source), str(output), '--nets', *nets,
+                '--layers', 'F.Cu', 'B.Cu', '--track-width', width,
+                '--same-net-pad-clearance', '0.1', '--grid-step', '0.05',
+                '--via-size', '0.4', '--via-drill', '0.2', '--via-cost', '300',
+                '--turn-cost', '4000', '--escalation', 'off', '--fab-tier', 'advanced',
+                '--strict-sizes', '--no-fix-drc-settings', '--json-out', str(work / f'{name}.json')]
+        if clearance:
+            args += ['--clearance', '0.2']
+        if name != 'swclk':
+            args += ['--keep-input-copper']
+        if force:
+            args += ['--force-reroute']
+        result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
+        (work / f'{name}.log').write_text(result.stdout + result.stderr)
+        if result.returncode:
+            raise SystemExit(f'Routing {name} failed; see {work / f"{name}.log"}')
+        failed = json.loads((work / f'{name}.json').read_text())['failed']
+        if failed:
+            raise SystemExit(f'{name}: {failed} failed nets; see {work / f"{name}.log"}')
+        print(f'{name}: 0 failed nets')
+        source = output
+    print(f'Candidate: {source}')
+
+
 if __name__ == '__main__':
     import sys
-    if len(sys.argv) != 2 or sys.argv[1] not in ('build', 'repair', 'check'):
-        print('Usage: python3 manage.py build|repair|check\nbuild: new schematic only; repair: fix misplaced component labels; check: run tests, ERC, and netlist checks')
+    if len(sys.argv) != 2 or sys.argv[1] not in ('build', 'repair', 'check', 'route'):
+        print('Usage: python3 manage.py build|repair|check|route\nbuild: new schematic only; repair: fix misplaced component labels; check: run tests, ERC, and netlist checks; route: reroute signals on a recoverable copy')
         raise SystemExit(2)
-    {'build': build, 'repair': repair, 'check': check}[sys.argv[1]]()
+    {'build': build, 'repair': repair, 'check': check, 'route': route}[sys.argv[1]]()
