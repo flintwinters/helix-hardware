@@ -256,6 +256,45 @@ for ref in SYMBOLS:
     if ref.startswith('C'):
         FOOTPRINTS[ref] = 'Capacitor_SMD:C_0603_1608Metric'
 POWER_SYMBOLS = {'GND': 'GND', '3V3': '+3V3', 'VBUS': 'VBUS'}
+MANUAL_ROUTE_NETS = frozenset({'/USB_DP', '/USB_DM'})
+
+
+def copper_snapshot(tree, nets):
+    """Capture exact manual copper geometry by UUID for route preservation."""
+    found = {}
+    for item in tree:
+        if not isinstance(item, list) or item[0] not in ('segment', 'arc', 'via'):
+            continue
+        net = json.loads(child(item, 'net')[1])
+        if net not in nets:
+            continue
+        uid = json.loads(child(item, 'uuid')[1])
+        if item[0] in ('segment', 'arc'):
+            points = ('start', 'mid', 'end') if item[0] == 'arc' else ('start', 'end')
+            geometry = (tuple(tuple(map(float, child(item, point)[1:])) for point in points),
+                        float(child(item, 'width')[1]), child(item, 'layer')[1])
+        else:
+            geometry = (tuple(map(float, child(item, 'at')[1:])),
+                        float(child(item, 'size')[1]), float(child(item, 'drill')[1]),
+                        tuple(child(item, 'layers')[1:]))
+        if uid in found:
+            raise ValueError(f'Duplicate manual copper UUID: {uid}')
+        found[uid] = (item[0], net, geometry)
+    return found
+
+
+def prepare_route_input(tree):
+    protected = copper_snapshot(tree, MANUAL_ROUTE_NETS)
+    if {net for _, net, _ in protected.values()} != MANUAL_ROUTE_NETS:
+        raise ValueError('Route /USB_DP and /USB_DM manually before running the autorouter')
+    clean = [x for x in tree if not (isinstance(x, list) and x[0] in ('segment', 'arc', 'via')
+                                      and json.loads(child(x, 'net')[1]) not in MANUAL_ROUTE_NETS)]
+    return clean, protected
+
+
+def require_manual_copper_preserved(tree, protected):
+    if copper_snapshot(tree, MANUAL_ROUTE_NETS) != protected:
+        raise ValueError('Autorouter changed manually routed USB D+/D- copper')
 
 
 def build():
@@ -411,12 +450,15 @@ def route():
     elif original.read_bytes() != board.read_bytes():
         raise SystemExit(f'Board changed since route backup; inspect {work} first')
     tree = parse(original.read_text())
-    clean = [x for x in tree if not (isinstance(x, list) and x[0] in ('segment', 'via'))]
+    try:
+        clean, protected = prepare_route_input(tree)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     source = work / 'clean.kicad_pcb'
     source.write_text(emit(clean) + '\n')
     shutil.copy2(project, work / 'clean.kicad_pro')
     stages = [
-        ('usb', ['/USB_DM', '/USB_DP', '/CC1', '/CC2', 'VBUS'], '0.15', False, False),
+        ('usb', ['/CC1', '/CC2', 'VBUS'], '0.15', False, False),
         ('swclk', ['/SWCLK'], '0.3', True, False),
         ('ordinary', ['+3V3', '/NRST', '/PICO_CS', '/SD_CS', '/SPI_MISO',
                       '/SPI_MOSI', '/SPI_SCK', '/SWDIO', '/WIZ_CS', '/WIZ_INT',
@@ -435,8 +477,7 @@ def route():
                 '--strict-sizes', '--no-fix-drc-settings', '--json-out', str(work / f'{name}.json')]
         if clearance:
             args += ['--clearance', '0.2']
-        if name != 'usb':
-            args += ['--keep-input-copper']
+        args += ['--keep-input-copper']
         if force:
             args += ['--force-reroute']
         result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
@@ -473,13 +514,18 @@ def route():
                 at = any(abs(float(point[1]) - float(x)) < 1e-4 and
                          abs(float(point[2]) - float(y)) < 1e-4
                          for point in (start, end))
-                if at and abs(actual - float(length)) < 1e-4 and actual < width / 2:
+                if (at and abs(actual - float(length)) < 1e-4 and actual < width / 2
+                        and json.loads(child(item, 'net')[1]) not in MANUAL_ROUTE_NETS):
                     candidates.append(item)
             if len(candidates) != 1:
                 raise SystemExit(f'Cannot safely clean dangling track at ({x}, {y}); see {report}')
             tree.remove(candidates[0])
         source.write_text(emit(tree) + '\n')
         print(f'Removed {len(dangling)} KiCad-confirmed tiny dangling stub(s)')
+    try:
+        require_manual_copper_preserved(parse(source.read_text()), protected)
+    except ValueError as error:
+        raise SystemExit(f'{error}; candidate preserved for review') from error
     print(f'Candidate: {source}')
 
 
