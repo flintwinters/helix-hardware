@@ -1,1 +1,1 @@
-(sym_lib_table (version 7) (lib (name "Helix") (type "KiCad") (uri "${KIPRJMOD}/helix_symbols.kicad_sym") (options "") (descr "Flattened KiCad AP2112K symbol")))
+(sym_lib_table (version 7) (lib (name "Helix") (type "KiCad") (uri "${KIPRJMOD}/helix_symbols.kicad_sym") (options "") (descr "Project symbols")))

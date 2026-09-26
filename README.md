@@ -28,4 +28,4 @@ The USB-C receptacle uses separate 5.1 kΩ CC pull-downs and a 3.3 V AP2112K reg
 | [GCT USB4110](https://gct.co/files/specs/usb4110-spec.pdf) | `docs/usb4110.pdf` | USB 2.0 Type-C receptacle footprint and contact arrangement |
 | [Adafruit 3 V microSD breakout guide](https://learn.adafruit.com/adafruit-microsd-spi-sdio/pinouts) | `docs/adafruit_microsd_breakout.pdf` | 3.3 V-only SPI signals; generic J4 follows signal names rather than its physical header order |
 
-The local `Helix:AP2112K-3.3` symbol is the KiCad 10 library's inherited AP2112K symbol flattened for portability. All other schematic symbols come directly from the installed KiCad library.
+The local `Helix:AP2112K-3.3` symbol is the KiCad 10 library's inherited AP2112K symbol flattened for portability. The edited STM32 pin layout is stored in `symbols/STM32C071FBPx.kicad_sym` and installed into the project symbol library during regeneration. Other symbols come from the installed KiCad library.

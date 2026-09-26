@@ -51,6 +51,10 @@ def uid(key):
 
 
 def symbol(group, name):
+    if (group, name) == ('Helix', 'STM32C071FBPx'):
+        node = child(parse((ROOT / 'symbols' / 'STM32C071FBPx.kicad_sym').read_text()), 'symbol')
+        node[1] = quote(f'{group}:{name}')
+        return node
     if LIB is None:
         raise SystemExit('KiCad symbol library missing; set KICAD_SYMBOL_DIR')
     source_group = 'Regulator_Linear' if group == 'Helix' else group
@@ -108,7 +112,7 @@ def lint_component_labels(schematic):
 
 
 SYMBOLS = {
-    'U1': ('MCU_ST_STM32C0', 'STM32C071FBPx', 'STM32C071FBP6', 207, 112),
+    'U1': ('Helix', 'STM32C071FBPx', 'STM32C071FBP6', 207, 112),
     'J1': ('Connector', 'USB_C_Receptacle_USB2.0_16P', 'USB-C', 48, 80),
     'U2': ('Helix', 'AP2112K-3.3', 'AP2112K-3.3', 121, 75),
     'J2': ('Connector_Generic', 'Conn_01x06', 'WIZ850io J1', 315, 66),
@@ -231,10 +235,13 @@ def make():
     (ROOT / 'helix_minimal.kicad_sch').write_text(schematic + '\n')
     if not (ROOT / 'helix_minimal.kicad_pro').exists():
         (ROOT / 'helix_minimal.kicad_pro').write_text('{}\n')
-    local = symbol('Helix', 'AP2112K-3.3')
-    local[1] = quote('AP2112K-3.3')
-    (ROOT / 'helix_symbols.kicad_sym').write_text(f'(kicad_symbol_lib (version 20251024) (generator "kicad_symbol_editor") {emit(local)})\n')
-    (ROOT / 'sym-lib-table').write_text('(sym_lib_table (version 7) (lib (name "Helix") (type "KiCad") (uri "${KIPRJMOD}/helix_symbols.kicad_sym") (options "") (descr "Flattened KiCad AP2112K symbol")))\n')
+    local_symbols = []
+    for name in ('AP2112K-3.3', 'STM32C071FBPx'):
+        local = symbol('Helix', name)
+        local[1] = quote(name)
+        local_symbols.append(emit(local))
+    (ROOT / 'helix_symbols.kicad_sym').write_text(f'(kicad_symbol_lib (version 20251024) (generator "kicad_symbol_editor") {" ".join(local_symbols)})\n')
+    (ROOT / 'sym-lib-table').write_text('(sym_lib_table (version 7) (lib (name "Helix") (type "KiCad") (uri "${KIPRJMOD}/helix_symbols.kicad_sym") (options "") (descr "Project symbols")))\n')
     print(f'Wrote schematic: {len(parts)} parts, {len(labels)} pin terminations')
 
 
