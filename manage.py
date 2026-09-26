@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import unittest
 import uuid
 
 ROOT = Path(__file__).resolve().parent
@@ -75,6 +76,35 @@ def pins(node):
             number = json.loads(child(pin, 'number')[1])
             result[number] = (json.loads(child(pin, 'name')[1]), child(pin, 'at')[1:])
     return result
+
+
+def lint_component_labels(schematic):
+    """Keep visible component text within one grid margin of its symbol pins."""
+    library = {json.loads(node[1]): node for node in child(schematic, 'lib_symbols')[1:]
+               if isinstance(node, list) and node[0] == 'symbol'}
+    problems = []
+    for part in (node for node in schematic if isinstance(node, list) and node[0] == 'symbol'):
+        lib_id = json.loads(child(part, 'lib_id')[1])
+        x, y = map(float, child(part, 'at')[1:3])
+        pin_positions = [position for _, position in pins(library[lib_id]).values()]
+        half_width = max((abs(float(p[0])) for p in pin_positions), default=0)
+        half_height = max((abs(float(p[1])) for p in pin_positions), default=0)
+        properties = {json.loads(p[1]): p for p in part
+                      if isinstance(p, list) and p[0] == 'property'}
+        ref = json.loads(properties['Reference'][2])
+        for name in ('Reference', 'Value'):
+            prop = properties[name]
+            effects = child(prop, 'effects')
+            if any(isinstance(item, list) and item[0] == 'hide' and item[1] == 'yes'
+                   for item in effects):
+                continue
+            px, py = map(float, child(prop, 'at')[1:3])
+            outside_x = max(abs(px - x) - half_width, 0)
+            outside_y = max(abs(py - y) - half_height, 0)
+            if math.hypot(outside_x, outside_y) > 7.62:
+                problems.append(f'{ref} {name} is too far from its symbol')
+    if problems:
+        raise ValueError('\n'.join(problems))
 
 
 SYMBOLS = {
@@ -164,8 +194,9 @@ def make():
             for pad, function in MCU_FUNCTIONS.items():
                 if pin_map[pad][0] != function:
                     raise ValueError(f'STM32 pad {pad}: expected {function}, got {pin_map[pad][0]}')
-        properties = [f'(property "Reference" {quote(ref)} (at {x} {y-24} 0) (effects (font (size 1.27 1.27))))',
-                      f'(property "Value" {quote(value)} (at {x} {y-21} 0) (effects (font (size 1.27 1.27))))']
+        top = max((abs(float(position[1])) for _, position in pin_map.values()), default=0)
+        properties = [f'(property "Reference" {quote(ref)} (at {x} {round(y-top-2.54, 4)} 0) (effects (font (size 1.27 1.27))))',
+                      f'(property "Value" {quote(value)} (at {x} {round(y-top-5.08, 4)} 0) (effects (font (size 1.27 1.27))))']
         footprint = FOOTPRINTS.get(ref) or next((json.loads(p[2]) for p in node if isinstance(p, list) and p[0] == 'property' and p[1] == '"Footprint"'), '')
         if footprint:
             properties.append(f'(property "Footprint" {quote(footprint)} (at {x} {y} 0) (effects (font (size 1.27 1.27)) (hide yes)))')
@@ -208,7 +239,15 @@ def make():
 
 
 def check():
+    suite = unittest.defaultTestLoader.discover(str(ROOT / 'tests'), top_level_dir=str(ROOT))
+    result = unittest.TextTestRunner(verbosity=0).run(suite)
+    if not result.wasSuccessful():
+        raise SystemExit('Python checks failed')
     schematic = parse((ROOT / 'helix_minimal.kicad_sch').read_text())
+    try:
+        lint_component_labels(schematic)
+    except ValueError as error:
+        raise SystemExit(f'Component label lint failed:\n{error}') from error
     placed = {json.loads(child(s, 'lib_id')[1]) for s in schematic
               if isinstance(s, list) and s[0] == 'symbol'}
     expected_power = {f'power:{name}' for name in POWER_SYMBOLS.values()}
