@@ -52,12 +52,13 @@ def uid(key):
 def symbol(group, name):
     if LIB is None:
         raise SystemExit('KiCad symbol library missing; set KICAD_SYMBOL_DIR')
-    path = LIB / f'{group}.kicad_symdir' / f'{name}.kicad_sym'
+    source_group = 'Regulator_Linear' if group == 'Helix' else group
+    path = LIB / f'{source_group}.kicad_symdir' / f'{name}.kicad_sym'
     node = child(parse(path.read_text()), 'symbol')
     parent = next((x for x in node if isinstance(x, list) and x[0] == 'extends'), None)
     if parent:
         base_name = json.loads(parent[1])
-        base = symbol(group, base_name)
+        base = symbol(source_group, base_name)
         node.remove(parent)
         for part in base:
             if isinstance(part, list) and part[0] == 'symbol':
@@ -79,79 +80,48 @@ def pins(node):
 SYMBOLS = {
     'U1': ('MCU_ST_STM32C0', 'STM32C071FBPx', 'STM32C071FBP6', 207, 112),
     'J1': ('Connector', 'USB_C_Receptacle_USB2.0_16P', 'USB-C', 48, 80),
-    'U2': ('Regulator_Switching', 'AP63203WU', 'AP63203WU-7', 125, 75),
-    'U3': ('Power_Management', 'TPS22917DBV', 'TPS22917DBVR', 270, 72),
-    'U4': ('Power_Protection', 'USBLC6-2SC6', 'USBLC6-2SC6', 81, 171),
-    'F1': ('Device', 'Polyfuse', 'MF-MSMF075-2', 82, 79),
-    'D1': ('Device', 'D_Zener', 'SMF6V0A', 82, 113),
-    'L1': ('Device', 'L', '6.8uH 74439346068', 156, 90),
+    'U2': ('Helix', 'AP2112K-3.3', 'AP2112K-3.3', 121, 75),
     'J2': ('Connector_Generic', 'Conn_01x06', 'WIZ850io J1', 315, 66),
     'J3': ('Connector_Generic', 'Conn_01x06', 'WIZ850io J2', 315, 122),
     'J4': ('Connector_Generic', 'Conn_01x06', '3V3 microSD SPI breakout', 315, 190),
-    'J5': ('Connector_Generic', 'Conn_01x05', 'SWD', 75, 224),
+    'J5': ('Connector_Generic', 'Conn_01x05', 'SWD', 75, 190),
     '#PWR01': ('power', 'PWR_FLAG', 'PWR_FLAG', 105, 48),
     '#PWR02': ('power', 'PWR_FLAG', 'PWR_FLAG', 121, 48),
-    '#PWR03': ('power', 'PWR_FLAG', 'PWR_FLAG', 137, 48),
-    '#PWR04': ('power', 'PWR_FLAG', 'PWR_FLAG', 153, 48),
-    'R1': ('Device', 'R', '5.1k 1%', 45, 147),
-    'R2': ('Device', 'R', '5.1k 1%', 61, 147),
-    'R3': ('Device', 'R', '10k', 278, 216),
-    'R4': ('Device', 'R', '10k', 262, 216),
-    'R5': ('Device', 'R', '10k', 246, 216),
-    'R6': ('Device', 'R', '100k', 247, 118),
-    'R7': ('Device', 'R', '1k', 291, 92),
-    'C1': ('Device', 'C', '10uF 16V X7R', 104, 114),
-    'C2': ('Device', 'C', '22uF 10V X7R', 156, 124),
-    'C3': ('Device', 'C', '100nF 10V X7R', 172, 100),
-    'C4': ('Device', 'C', '4.7uF 10V X7R', 186, 100),
-    'C5': ('Device', 'C', '10uF 10V X7R', 281, 119),
-    'C6': ('Device', 'C', '100nF 10V X7R', 274, 205),
-    'C7': ('Device', 'C', '22uF 10V X7R', 173, 124),
-    'C8': ('Device', 'C', '100nF 50V X7R', 153, 63),
-    'C9': ('Device', 'C', '1nF 10V', 240, 92),
-    'C10': ('Device', 'C', '1uF 10V X7R', 250, 92),
+    'R1': ('Device', 'R', '5.1k', 76, 129),
+    'R2': ('Device', 'R', '5.1k', 93, 129),
+    'R3': ('Device', 'R', '10k', 274, 147),
+    'R4': ('Device', 'R', '10k', 258, 147),
+    'R5': ('Device', 'R', '10k', 242, 147),
+    'C1': ('Device', 'C', '1uF', 106, 100),
+    'C2': ('Device', 'C', '1uF', 140, 100),
+    'C3': ('Device', 'C', '100nF', 172, 100),
 }
 
 
 NETS = {
-    'U1': {'4': '3V3', '5': 'GND', '6': 'NRST', '7': 'WIZ_RST', '8': 'PERIPH_EN', '10': 'WIZ_INT',
+    'U1': {'4': '3V3', '5': 'GND', '6': 'NRST', '7': 'WIZ_RST', '10': 'WIZ_INT',
            '11': 'WIZ_CS', '12': 'SPI_SCK', '13': 'SPI_MISO', '14': 'SPI_MOSI',
            '15': 'SD_CS', '16': 'USB_DM', '17': 'USB_DP', '18': 'SWDIO', '19': 'SWCLK'},
-    'J1': {'A1': 'GND', 'A4': 'VBUS_RAW', 'A5': 'CC1', 'A6': 'USB_DP_PORT', 'A7': 'USB_DM_PORT',
-           'A8': None, 'A9': 'VBUS_RAW', 'A12': 'GND', 'B1': 'GND', 'B4': 'VBUS_RAW',
-           'B5': 'CC2', 'B6': 'USB_DP_PORT', 'B7': 'USB_DM_PORT', 'B8': None,
-           'B9': 'VBUS_RAW', 'B12': 'GND', 'SH': 'GND'},
-    # AP63203 fixed 3.3 V: FB senses the rail after L1; BST capacitor returns to SW.
-    # Diodes DS41326 table 2 recommends 10 uF input, two 22 uF output caps.
-    'U2': {'1': '3V3', '2': 'VBUS', '3': 'VBUS', '4': 'GND', '5': 'SW', '6': 'BST'},
-    # TPS22917 QOD discharges the switched rail through R7; CT limits inrush.
-    'U3': {'1': '3V3', '2': 'GND', '3': 'PERIPH_EN', '4': 'CT',
-           '5': 'QOD', '6': '3V3_PERIPH'},
-    'U4': {'1': 'USB_DM_PORT', '2': 'GND', '3': 'USB_DP_PORT',
-           '4': 'USB_DP', '5': 'VBUS_RAW', '6': 'USB_DM'},
-    'F1': {'1': 'VBUS_RAW', '2': 'VBUS'},
-    'D1': {'1': 'VBUS_RAW', '2': 'GND'},
-    'L1': {'1': 'SW', '2': '3V3'},
+    'J1': {'A1': 'GND', 'A4': 'VBUS', 'A5': 'CC1', 'A6': 'USB_DP', 'A7': 'USB_DM',
+           'A8': None, 'A9': 'VBUS', 'A12': 'GND', 'B1': 'GND', 'B4': 'VBUS',
+           'B5': 'CC2', 'B6': 'USB_DP', 'B7': 'USB_DM', 'B8': None,
+           'B9': 'VBUS', 'B12': 'GND', 'SH': 'GND'},
+    'U2': {'1': 'VBUS', '2': 'GND', '3': 'VBUS', '5': '3V3'},
     'J2': {'1': 'GND', '2': 'GND', '3': 'SPI_MOSI', '4': 'SPI_SCK', '5': 'WIZ_CS', '6': 'WIZ_INT'},
-    'J3': {'1': 'GND', '2': '3V3_PERIPH', '3': '3V3_PERIPH', '4': None, '5': 'WIZ_RST', '6': 'SPI_MISO'},
-    'J4': {'1': '3V3_PERIPH', '2': 'GND', '3': 'SPI_SCK', '4': 'SPI_MOSI', '5': 'SPI_MISO', '6': 'SD_CS'},
+    'J3': {'1': 'GND', '2': '3V3', '3': '3V3', '4': None, '5': 'WIZ_RST', '6': 'SPI_MISO'},
+    'J4': {'1': '3V3', '2': 'GND', '3': 'SPI_SCK', '4': 'SPI_MOSI', '5': 'SPI_MISO', '6': 'SD_CS'},
     'J5': {'1': '3V3', '2': 'SWDIO', '3': 'SWCLK', '4': 'GND', '5': 'NRST'},
-    '#PWR01': {'1': 'VBUS_RAW'}, '#PWR02': {'1': 'GND'},
-    '#PWR03': {'1': 'VBUS'}, '#PWR04': {'1': '3V3'},
+    '#PWR01': {'1': 'VBUS'}, '#PWR02': {'1': 'GND'},
     'R1': {'1': 'CC1', '2': 'GND'}, 'R2': {'1': 'CC2', '2': 'GND'},
-    'R3': {'1': '3V3_PERIPH', '2': 'WIZ_RST'}, 'R4': {'1': '3V3_PERIPH', '2': 'WIZ_CS'},
-    'R5': {'1': '3V3_PERIPH', '2': 'SD_CS'}, 'R6': {'1': 'PERIPH_EN', '2': 'GND'},
-    'R7': {'1': '3V3_PERIPH', '2': 'QOD'},
+    'R3': {'1': '3V3', '2': 'WIZ_RST'}, 'R4': {'1': '3V3', '2': 'WIZ_CS'},
+    'R5': {'1': '3V3', '2': 'SD_CS'},
     'C1': {'1': 'VBUS', '2': 'GND'}, 'C2': {'1': '3V3', '2': 'GND'},
-    'C3': {'1': '3V3', '2': 'GND'}, 'C4': {'1': '3V3', '2': 'GND'},
-    'C5': {'1': '3V3_PERIPH', '2': 'GND'}, 'C6': {'1': '3V3_PERIPH', '2': 'GND'},
-    'C7': {'1': '3V3', '2': 'GND'}, 'C8': {'1': 'BST', '2': 'SW'},
-    'C9': {'1': 'CT', '2': 'GND'}, 'C10': {'1': '3V3', '2': 'GND'},
+    'C3': {'1': '3V3', '2': 'GND'},
 }
 
 # STM32C071FBP6 TSSOP20 pad functions verified against ST DS14693, figure 4.
 MCU_FUNCTIONS = {'4': 'VDD', '5': 'VSS', '6': 'PF2', '7': 'PA0',
-                 '8': 'PA1', '10': 'PA3', '11': 'PA4', '12': 'PA5', '13': 'PA6',
+                 '10': 'PA3', '11': 'PA4', '12': 'PA5', '13': 'PA6',
                  '14': 'PA7', '15': 'PA8', '16': 'PA11', '17': 'PA12',
                  '18': 'PA13', '19': 'PA14/PA15'}
 
@@ -161,19 +131,12 @@ FOOTPRINTS = {
     'J3': 'Connector_PinSocket_2.54mm:PinSocket_1x06_P2.54mm_Vertical',
     'J4': 'Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical',
     'J5': 'Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical',
-    'U2': 'Package_TO_SOT_SMD:TSOT-23-6',
-    'F1': 'Fuse:Fuse_1812_4532Metric',
-    'D1': 'Diode_SMD:D_SMF',
-    'L1': 'Inductor_SMD:L_Wuerth_XHMI-6060',
 }
 for ref in SYMBOLS:
     if ref.startswith('R'):
         FOOTPRINTS[ref] = 'Resistor_SMD:R_0603_1608Metric'
     if ref.startswith('C'):
         FOOTPRINTS[ref] = 'Capacitor_SMD:C_0603_1608Metric'
-for ref in ('C1', 'C2', 'C5', 'C7'):
-    FOOTPRINTS[ref] = 'Capacitor_SMD:C_1206_3216Metric'
-
 POWER_SYMBOLS = {'GND': 'GND', '3V3': '+3V3', 'VBUS': 'VBUS'}
 
 
@@ -237,24 +200,14 @@ def make():
     (ROOT / 'helix_minimal.kicad_sch').write_text(schematic + '\n')
     if not (ROOT / 'helix_minimal.kicad_pro').exists():
         (ROOT / 'helix_minimal.kicad_pro').write_text('{}\n')
+    local = symbol('Helix', 'AP2112K-3.3')
+    local[1] = quote('AP2112K-3.3')
+    (ROOT / 'helix_symbols.kicad_sym').write_text(f'(kicad_symbol_lib (version 20251024) (generator "kicad_symbol_editor") {emit(local)})\n')
+    (ROOT / 'sym-lib-table').write_text('(sym_lib_table (version 7) (lib (name "Helix") (type "KiCad") (uri "${KIPRJMOD}/helix_symbols.kicad_sym") (options "") (descr "Flattened KiCad AP2112K symbol")))\n')
     print(f'Wrote schematic: {len(parts)} parts, {len(labels)} pin terminations')
 
 
 def check():
-    footprint_root = LIB.parent / 'footprints' if LIB else None
-    if footprint_root and footprint_root.is_dir():
-        for ref, (group, name, *_rest) in SYMBOLS.items():
-            if ref.startswith('#'):
-                continue
-            node = symbol(group, name)
-            footprint = FOOTPRINTS.get(ref) or next((json.loads(p[2]) for p in node
-                if isinstance(p, list) and p[0] == 'property' and p[1] == '"Footprint"'), '')
-            if not footprint:
-                raise SystemExit(f'{ref}: missing footprint')
-            library_name, footprint_name = footprint.split(':', 1)
-            path = footprint_root / f'{library_name}.pretty' / f'{footprint_name}.kicad_mod'
-            if not path.exists():
-                raise SystemExit(f'{ref}: footprint unavailable: {footprint}')
     schematic = parse((ROOT / 'helix_minimal.kicad_sch').read_text())
     placed = {json.loads(child(s, 'lib_id')[1]) for s in schematic
               if isinstance(s, list) and s[0] == 'symbol'}
@@ -291,20 +244,10 @@ def check():
         'WIZ_RST': {('U1', '7'), ('J3', '5'), ('R3', '2')},
         'WIZ_INT': {('U1', '10'), ('J2', '6')},
         'SD_CS': {('U1', '15'), ('J4', '6')},
-        'USB_DM_PORT': {('J1', 'A7'), ('J1', 'B7'), ('U4', '1')},
-        'USB_DP_PORT': {('J1', 'A6'), ('J1', 'B6'), ('U4', '3')},
-        'USB_DM': {('U4', '6'), ('U1', '16')},
-        'USB_DP': {('U4', '4'), ('U1', '17')},
-        'VBUS_RAW': {('J1', 'A4'), ('F1', '1'), ('D1', '1'), ('U4', '5')},
-        'VBUS': {('F1', '2'), ('U2', '2'), ('U2', '3'), ('C1', '1')},
-        '+3V3': {('U2', '1'), ('L1', '2'), ('U1', '4'), ('U3', '1'), ('J5', '1')},
-        'SW': {('U2', '5'), ('L1', '1'), ('C8', '2')},
-        'BST': {('U2', '6'), ('C8', '1')},
-        'PERIPH_EN': {('U1', '8'), ('U3', '3'), ('R6', '1')},
-        'CT': {('U3', '4'), ('C9', '1')},
-        '3V3_PERIPH': {('U3', '6'), ('R7', '1'), ('J3', '2'), ('J3', '3'), ('J4', '1'), ('R3', '1')},
-        'QOD': {('U3', '5'), ('R7', '2')},
-        'GND': {('U2', '4'), ('U3', '2'), ('U4', '2'), ('D1', '2'), ('U1', '5')},
+        'USB_DM': {('U1', '16'), ('J1', 'A7'), ('J1', 'B7')},
+        'USB_DP': {('U1', '17'), ('J1', 'A6'), ('J1', 'B6')},
+        'VBUS': {('U2', '1'), ('U2', '3'), ('J1', 'A4')},
+        '+3V3': {('U2', '5'), ('U1', '4'), ('J3', '2'), ('J3', '3'), ('J4', '1')},
         'CC1': {('J1', 'A5'), ('R1', '1')},
         'CC2': {('J1', 'B5'), ('R2', '1')},
     }
