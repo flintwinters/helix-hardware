@@ -489,11 +489,14 @@ def audit():
           f'{footprint_errors[1]} footprint errors. See {report.relative_to(ROOT)}')
 
 
-def route():
+def route_candidate(direction_cost):
     """Reroute signals from the current board on a recoverable copy."""
     board = ROOT / 'helix_minimal.kicad_pcb'
     project = ROOT / 'helix_minimal.kicad_pro'
-    digest = hashlib.sha256(board.read_bytes() + project.read_bytes()).hexdigest()[:12]
+    # Rust router prefers F.Cu horizontal and B.Cu vertical.
+    route_options = f'direction={direction_cost};heuristic=1.0'
+    digest = hashlib.sha256(board.read_bytes() + project.read_bytes()
+                            + route_options.encode()).hexdigest()[:12]
     work = ROOT / '.recovery' / f'usb_first_{digest}'
     work.mkdir(parents=True, exist_ok=True)
     original = work / 'original.kicad_pcb'
@@ -525,7 +528,9 @@ def route():
                 '--layers', 'F.Cu', 'B.Cu', '--track-width', width,
                 '--same-net-pad-clearance', '0.1', '--grid-step', '0.05',
                 '--via-size', '0.4', '--via-drill', '0.2', '--via-cost', '300',
-                '--turn-cost', '4000', '--escalation', 'off', '--fab-tier', 'advanced',
+                '--turn-cost', '4000', '--direction-preference-cost', str(direction_cost),
+                '--heuristic-weight', '1.0',
+                '--escalation', 'off', '--fab-tier', 'advanced',
                 '--strict-sizes', '--no-fix-drc-settings', '--json-out', str(work / f'{name}.json')]
         if clearance:
             args += ['--clearance', '0.2']
@@ -578,7 +583,34 @@ def route():
         require_manual_copper_preserved(parse(source.read_text()), protected)
     except ValueError as error:
         raise SystemExit(f'{error}; candidate preserved for review') from error
-    print(f'Candidate: {source}')
+    return source
+
+
+def route_score(path):
+    """Score completed candidates; squared net lengths punish long detours."""
+    lengths = {}
+    off_axis = 0.0
+    for item in parse(path.read_text()):
+        if not isinstance(item, list) or item[0] != 'segment':
+            continue
+        net = json.loads(child(item, 'net')[1])
+        if net in MANUAL_ROUTE_NETS or net == 'GND':
+            continue
+        start, end = child(item, 'start'), child(item, 'end')
+        dx = abs(float(end[1]) - float(start[1]))
+        dy = abs(float(end[2]) - float(start[2]))
+        lengths[net] = lengths.get(net, 0) + math.hypot(dx, dy)
+        off_axis += dy if child(item, 'layer')[1] == '"F.Cu"' else dx
+    return sum(length * length for length in lengths.values()) + 10 * off_axis
+
+
+def route():
+    """Choose the clean candidate with the smallest quadratic length objective."""
+    candidates = [route_candidate(cost) for cost in (1200, 2000)]
+    scored = sorted((route_score(path), path) for path in candidates)
+    for score, path in scored:
+        print(f'Route objective {score:.1f}: {path}')
+    print(f'Candidate: {scored[0][1]}')
 
 
 if __name__ == '__main__':
