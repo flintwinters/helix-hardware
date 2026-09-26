@@ -605,12 +605,15 @@ def route_score(path):
 
 
 def route():
-    """Choose the clean candidate with the smallest quadratic length objective."""
+    """Install the recoverable candidate with the smallest quadratic length objective."""
     candidates = [route_candidate(cost) for cost in (1200, 2000)]
     scored = sorted((route_score(path), path) for path in candidates)
     for score, path in scored:
         print(f'Route objective {score:.1f}: {path}')
-    print(f'Candidate: {scored[0][1]}')
+    selected = scored[0][1]
+    board = ROOT / 'helix_minimal.kicad_pcb'
+    shutil.copy2(selected, board)
+    print(f'Installed: {selected}')
 
 
 if __name__ == '__main__':
