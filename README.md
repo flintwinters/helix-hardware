@@ -6,14 +6,14 @@ Open `helix_minimal.kicad_pro` in KiCad. Run `python3 manage.py check` for label
 
 ## PCB routing
 
-The PCB was routed with pinned [KiCadRoutingTools](https://github.com/drandyhaas/KiCadRoutingTools) (`git submodule update --init`). The two layer route uses 0.15 mm tracks and clearance, 0.40/0.20 mm vias, and **no size escalation**; those limits are recorded in Board Setup. To reroute after changing placement, preserve the board, then run:
+The PCB was routed with pinned [KiCadRoutingTools](https://github.com/drandyhaas/KiCadRoutingTools) (`git submodule update --init`). Board Setup specifies 0.30 mm tracks and 0.20 mm clearance for ordinary nets. The USB connector escape class uses 0.15 mm tracks and clearance for USB D±, CC1/CC2, VBUS, and GND; cross-class clearance is 0.20 mm. The route uses 0.40/0.20 mm vias, a 0.10 mm same-net pad-to-via gap, and no size escalation. A 0.05 mm router grid was needed to escape the USB connector without vias in pads.
 
 ```sh
-python3 vendor/KiCadRoutingTools/py_router/route_planes.py helix_minimal.kicad_pcb .recovery/planes.kicad_pcb --nets GND --plane-layers B.Cu --no-fix-drc-settings
-python3 vendor/KiCadRoutingTools/py_router/route.py .recovery/planes.kicad_pcb .recovery/routed.kicad_pcb --nets '*' --layers F.Cu B.Cu --track-width 0.15 --clearance 0.15 --via-size 0.4 --via-drill 0.2 --escalation off --fab-tier advanced --strict-sizes --routing-clearance-margin 0.02 --no-fix-drc-settings
+python3 vendor/KiCadRoutingTools/py_router/route.py input.kicad_pcb usb_escape.kicad_pcb --nets '/USB_DM' '/USB_DP' '/CC1' '/CC2' VBUS GND --layers F.Cu B.Cu --track-width 0.15 --clearance 0.15 --same-net-pad-clearance 0.1 --grid-step 0.05 --via-size 0.4 --via-drill 0.2 --escalation off --fab-tier advanced --strict-sizes --no-fix-drc-settings
+python3 vendor/KiCadRoutingTools/py_router/route.py usb_escape.kicad_pcb bulk_route.kicad_pcb --nets '*' --layers F.Cu B.Cu --keep-input-copper --track-width 0.2 --clearance 0.2 --same-net-pad-clearance 0.1 --grid-step 0.05 --via-size 0.4 --via-drill 0.2 --escalation off --fab-tier advanced --strict-sizes --no-fix-drc-settings
 ```
 
-Review the candidate before replacing the board. KiCad's DRC reports zero copper errors, zero unconnected items, and zero schematic parity issues on the committed route. Its 30 remaining messages concern footprint library divergence and existing silk/text placement. Six routed vias are in component pads and need filled and capped fabrication (IPC-4761 Type VII). Confirm this process and the WIZ850io module mechanics before fabrication.
+These commands start from an unrouted copy with the existing GND zone; use matching `.kicad_pro` copies for the staged files. They produce routing candidates, then local clearance corrections and DRC-guided widening are required. The committed route has 388.6 mm (81%) of non-USB routed length at 0.30 mm; constrained sections are 0.20 mm. The USB escape remains 0.15 mm. KiCad DRC reports zero copper errors, zero unconnected items, and zero schematic parity issues. The router's pad-overlap checker reports zero in-pad vias. The 19 remaining DRC messages concern text height and a footprint library mismatch. Review the WIZ850io mechanics before fabrication.
 
 ## Interfaces
 
