@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import json
+import math
 import os
 import re
 import shutil
@@ -150,6 +151,7 @@ def make():
     sheet_id = json.loads(uid('sheet'))
     parts = []
     labels = []
+    wires = []
     for ref, (group, name, value, x, y) in SYMBOLS.items():
         x, y = round(x / 1.27) * 1.27, round(y / 1.27) * 1.27
         lib_id = f'{group}:{name}'
@@ -169,17 +171,26 @@ def make():
         if footprint:
             properties.append(f'(property "Footprint" {quote(footprint)} (at {x} {y} 0) (effects (font (size 1.27 1.27)) (hide yes)))')
         parts.append(f'(symbol (lib_id {quote(lib_id)}) (at {x} {y} 0) (unit 1) (in_bom yes) (on_board yes) (dnp no) (uuid {quote(part_id)}) {" ".join(properties)} (instances (project "helix_minimal" (path "/{sheet_id}" (reference {quote(ref)}) (unit 1)))))')
+        seen = set()
         for number, (pin_name, (dx, dy, angle)) in pin_map.items():
             net = NETS.get(ref, {}).get(number)
             px, py = round(x + float(dx), 4), round(y - float(dy), 4)
             if net:
-                labels.append(f'(label {quote(net)} (at {px} {py} 0) (effects (font (size 1.0 1.0)) (justify left bottom)) (uuid {uid("label/" + ref + "/" + number)}))')
+                if (px, py) in seen:
+                    continue
+                seen.add((px, py))
+                radians = math.radians(float(angle))
+                tx = round(px - 5.08 * math.cos(radians), 4)
+                ty = round(py + 5.08 * math.sin(radians), 4)
+                wires.append(f'(wire (pts (xy {px} {py}) (xy {tx} {ty})) (stroke (width 0) (type default)) (uuid {uid("wire/" + ref + "/" + number)}))')
+                justify = 'right bottom' if tx < px else 'left bottom'
+                labels.append(f'(label {quote(net)} (at {tx} {ty} 0) (effects (font (size 1.0 1.0)) (justify {justify})) (uuid {uid("label/" + ref + "/" + number)}))')
             else:
                 labels.append(f'(no_connect (at {px} {py}) (uuid {uid("nc/" + ref + "/" + number)}))')
     schematic = f'''(kicad_sch (version 20250114) (generator "eeschema") (uuid {quote(sheet_id)})
       (paper "A3") (title_block (title "Helix minimal vertical slice") (rev "0.1"))
       (lib_symbols {' '.join(emit(x) for x in library.values())})
-      {' '.join(labels)} {' '.join(parts)})'''
+      {' '.join(wires)} {' '.join(labels)} {' '.join(parts)})'''
     (ROOT / 'helix_minimal.kicad_sch').write_text(schematic + '\n')
     (ROOT / 'helix_minimal.kicad_pro').write_text('{}\n')
     local = symbol('Helix', 'AP2112K-3.3')
@@ -213,11 +224,15 @@ def check():
         'SPI_MISO': {('U1', '13'), ('J3', '6'), ('J4', '5')},
         'SPI_MOSI': {('U1', '14'), ('J2', '3'), ('J4', '4')},
         'WIZ_CS': {('U1', '11'), ('J2', '5')},
+        'WIZ_RST': {('U1', '7'), ('J3', '5'), ('R3', '2')},
+        'WIZ_INT': {('U1', '10'), ('J2', '6')},
         'SD_CS': {('U1', '15'), ('J4', '6')},
         'USB_DM': {('U1', '16'), ('J1', 'A7'), ('J1', 'B7')},
         'USB_DP': {('U1', '17'), ('J1', 'A6'), ('J1', 'B6')},
         'VBUS': {('U2', '1'), ('U2', '3'), ('J1', 'A4')},
         '3V3': {('U2', '5'), ('U1', '4'), ('J3', '2'), ('J3', '3'), ('J4', '1')},
+        'CC1': {('J1', 'A5'), ('R1', '1')},
+        'CC2': {('J1', 'B5'), ('R2', '1')},
     }
     for name, pads in required.items():
         if not pads <= actual.get(name, set()):

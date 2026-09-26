@@ -23,7 +23,7 @@ The USB-C receptacle uses separate 5.1 kΩ CC pull-downs and a 3.3 V AP2112K reg
 | Part | Local document | Verified design facts |
 | --- | --- | --- |
 | [STM32C071FBP6](https://www.st.com/resource/en/datasheet/stm32c071fb.pdf) | Official ST PDF linked; ST download endpoint timed out here | TSSOP20 pinout, SPI1 PA5/6/7, USB PA11/12, 2–3.6 V supply |
-| [WIZ850io](https://docs.wiznet.io/Product/ioModule/WIZ850io) / [W5500](https://docs.wiznet.io/assets/files/W5500_ds_v110e-226ffec190c588b69f88d629789585e1.pdf) | `docs/wiz850io_schematic.pdf`, `docs/w5500.pdf` | 3.3 V module; two 1×6 headers; reset timing; 141 mA typical maximum listed operating current |
+| [WIZ850io](https://docs.wiznet.io/Product/ioModule/WIZ850io) / [W5500](https://docs.wiznet.io/assets/files/W5500_ds_v110e-226ffec190c588b69f88d629789585e1.pdf) | `docs/wiz850io_schematic.pdf`, `docs/w5500.pdf` | 3.3 V module; two 1×6 headers; reset timing; about 141 mA normal operating current |
 | [AP2112K-3.3](https://www.diodes.com/datasheet/download/AP2112.pdf) | `docs/ap2112.pdf` | SOT-23-5, 600 mA rating, 1 µF input/output ceramic capacitors |
 | [GCT USB4110](https://gct.co/files/specs/usb4110-spec.pdf) | `docs/usb4110.pdf` | USB 2.0 Type-C receptacle footprint and contact arrangement |
 | [Adafruit 3 V microSD breakout guide](https://learn.adafruit.com/adafruit-microsd-spi-sdio/pinouts) | `docs/adafruit_microsd_breakout.pdf` | 3.3 V-only SPI signals; generic J4 follows signal names rather than its physical header order |

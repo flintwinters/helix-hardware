@@ -5,3 +5,5 @@ erc.txt
 *.lck
 .history/
 __pycache__/
+preview.pdf
+preview.png
