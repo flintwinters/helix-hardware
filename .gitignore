@@ -1,0 +1,5 @@
+*.net
+erc.txt
+*-backups/
+*.kicad_prl
+*.lck

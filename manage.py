@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""Regenerate and check the KiCad schematic from one small connection table."""
+
+from pathlib import Path
+import json
+import os
+import re
+import shutil
+import subprocess
+import uuid
+
+ROOT = Path(__file__).resolve().parent
+FALLBACK = Path('/home/iron/projects/headgames/electrode/.kicad-appimage/AppDir/usr')
+LIB = next((p for p in (Path(os.environ.get('KICAD_SYMBOL_DIR', '/usr/share/kicad/symbols')),
+                         FALLBACK / 'share/kicad/symbols') if p.is_dir()), None)
+CLI = shutil.which('kicad-cli') or str(FALLBACK / 'bin/kicad-cli')
+
+
+def parse(source):
+    tokens = re.findall(r'"(?:\\.|[^"\\])*"|[()]|[^\s()]+', source)
+    stack = []
+    for token in tokens:
+        if token == '(':
+            item = []
+            if stack:
+                stack[-1].append(item)
+            stack.append(item)
+        elif token == ')':
+            result = stack.pop()
+        else:
+            stack[-1].append(token)
+    return result
+
+
+def emit(tree):
+    return '(' + ' '.join(emit(x) if isinstance(x, list) else x for x in tree) + ')'
+
+
+def child(tree, key):
+    return next(x for x in tree if isinstance(x, list) and x[0] == key)
+
+
+def quote(value):
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def uid(key):
+    return quote(uuid.uuid5(uuid.NAMESPACE_URL, 'helix-minimal/' + key))
+
+
+def symbol(group, name):
+    if LIB is None:
+        raise SystemExit('KiCad symbol library missing; set KICAD_SYMBOL_DIR')
+    source_group = 'Regulator_Linear' if group == 'Helix' else group
+    path = LIB / f'{source_group}.kicad_symdir' / f'{name}.kicad_sym'
+    node = child(parse(path.read_text()), 'symbol')
+    parent = next((x for x in node if isinstance(x, list) and x[0] == 'extends'), None)
+    if parent:
+        base_name = json.loads(parent[1])
+        base = symbol(source_group, base_name)
+        node.remove(parent)
+        for part in base:
+            if isinstance(part, list) and part[0] == 'symbol':
+                part[1] = part[1].replace(base_name + '_', name + '_')
+                node.append(part)
+    node[1] = quote(f'{group}:{name}')
+    return node
+
+
+def pins(node):
+    result = {}
+    for unit in (x for x in node if isinstance(x, list) and x[0] == 'symbol'):
+        for pin in (x for x in unit if isinstance(x, list) and x[0] == 'pin'):
+            number = json.loads(child(pin, 'number')[1])
+            result[number] = (json.loads(child(pin, 'name')[1]), child(pin, 'at')[1:])
+    return result
+
+
+SYMBOLS = {
+    'U1': ('MCU_ST_STM32C0', 'STM32C071FBPx', 'STM32C071FBP6', 207, 112),
+    'J1': ('Connector', 'USB_C_Receptacle_USB2.0_16P', 'USB-C', 48, 80),
+    'U2': ('Helix', 'AP2112K-3.3', 'AP2112K-3.3', 121, 75),
+    'J2': ('Connector_Generic', 'Conn_01x06', 'WIZ850io J1', 315, 66),
+    'J3': ('Connector_Generic', 'Conn_01x06', 'WIZ850io J2', 315, 122),
+    'J4': ('Connector_Generic', 'Conn_01x06', '3V3 microSD SPI breakout', 315, 190),
+    'J5': ('Connector_Generic', 'Conn_01x05', 'SWD', 75, 190),
+    '#PWR01': ('power', 'PWR_FLAG', 'VBUS source', 105, 48),
+    '#PWR02': ('power', 'PWR_FLAG', 'GND reference', 121, 48),
+    'R1': ('Device', 'R', '5.1k', 76, 129),
+    'R2': ('Device', 'R', '5.1k', 93, 129),
+    'R3': ('Device', 'R', '10k', 274, 147),
+    'R4': ('Device', 'R', '10k', 258, 147),
+    'R5': ('Device', 'R', '10k', 242, 147),
+    'C1': ('Device', 'C', '1uF', 106, 100),
+    'C2': ('Device', 'C', '1uF', 140, 100),
+    'C3': ('Device', 'C', '100nF', 172, 100),
+    'C4': ('Device', 'C', '4.7uF', 186, 100),
+    'C5': ('Device', 'C', '10uF', 274, 79),
+    'C6': ('Device', 'C', '100nF', 274, 205),
+}
+
+
+NETS = {
+    'U1': {'4': '3V3', '5': 'GND', '6': 'NRST', '7': 'WIZ_RST', '10': 'WIZ_INT',
+           '11': 'WIZ_CS', '12': 'SPI_SCK', '13': 'SPI_MISO', '14': 'SPI_MOSI',
+           '15': 'SD_CS', '16': 'USB_DM', '17': 'USB_DP', '18': 'SWDIO', '19': 'SWCLK'},
+    'J1': {'A1': 'GND', 'A4': 'VBUS', 'A5': 'CC1', 'A6': 'USB_DP', 'A7': 'USB_DM',
+           'A8': None, 'A9': 'VBUS', 'A12': 'GND', 'B1': 'GND', 'B4': 'VBUS',
+           'B5': 'CC2', 'B6': 'USB_DP', 'B7': 'USB_DM', 'B8': None,
+           'B9': 'VBUS', 'B12': 'GND', 'SH': 'GND'},
+    'U2': {'1': 'VBUS', '2': 'GND', '3': 'VBUS', '5': '3V3'},
+    'J2': {'1': 'GND', '2': 'GND', '3': 'SPI_MOSI', '4': 'SPI_SCK', '5': 'WIZ_CS', '6': 'WIZ_INT'},
+    'J3': {'1': 'GND', '2': '3V3', '3': '3V3', '4': None, '5': 'WIZ_RST', '6': 'SPI_MISO'},
+    'J4': {'1': '3V3', '2': 'GND', '3': 'SPI_SCK', '4': 'SPI_MOSI', '5': 'SPI_MISO', '6': 'SD_CS'},
+    'J5': {'1': '3V3', '2': 'SWDIO', '3': 'SWCLK', '4': 'GND', '5': 'NRST'},
+    '#PWR01': {'1': 'VBUS'}, '#PWR02': {'1': 'GND'},
+    'R1': {'1': 'CC1', '2': 'GND'}, 'R2': {'1': 'CC2', '2': 'GND'},
+    'R3': {'1': '3V3', '2': 'WIZ_RST'}, 'R4': {'1': '3V3', '2': 'WIZ_CS'},
+    'R5': {'1': '3V3', '2': 'SD_CS'},
+    'C1': {'1': 'VBUS', '2': 'GND'}, 'C2': {'1': '3V3', '2': 'GND'},
+    'C3': {'1': '3V3', '2': 'GND'}, 'C4': {'1': '3V3', '2': 'GND'},
+    'C5': {'1': '3V3', '2': 'GND'}, 'C6': {'1': '3V3', '2': 'GND'},
+}
+
+# STM32C071FBP6 TSSOP20 pad functions verified against ST DS14693, figure 4.
+MCU_FUNCTIONS = {'4': 'VDD', '5': 'VSS', '6': 'PF2', '7': 'PA0',
+                 '10': 'PA3', '11': 'PA4', '12': 'PA5', '13': 'PA6',
+                 '14': 'PA7', '15': 'PA8', '16': 'PA11', '17': 'PA12',
+                 '18': 'PA13', '19': 'PA14/PA15'}
+
+FOOTPRINTS = {
+    'J1': 'Connector_USB:USB_C_Receptacle_GCT_USB4110',
+    'J2': 'Connector_PinSocket_2.54mm:PinSocket_1x06_P2.54mm_Vertical',
+    'J3': 'Connector_PinSocket_2.54mm:PinSocket_1x06_P2.54mm_Vertical',
+    'J4': 'Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical',
+    'J5': 'Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical',
+}
+for ref in SYMBOLS:
+    if ref.startswith('R'):
+        FOOTPRINTS[ref] = 'Resistor_SMD:R_0603_1608Metric'
+    if ref.startswith('C'):
+        FOOTPRINTS[ref] = 'Capacitor_SMD:C_0603_1608Metric'
+FOOTPRINTS['C5'] = 'Capacitor_SMD:C_0805_2012Metric'
+
+
+def make():
+    library = {}
+    for group, name, _, _, _ in SYMBOLS.values():
+        library[f'{group}:{name}'] = symbol(group, name)
+    sheet_id = json.loads(uid('sheet'))
+    parts = []
+    labels = []
+    for ref, (group, name, value, x, y) in SYMBOLS.items():
+        x, y = round(x / 1.27) * 1.27, round(y / 1.27) * 1.27
+        lib_id = f'{group}:{name}'
+        node = library[lib_id]
+        part_id = json.loads(uid('part/' + ref))
+        pin_map = pins(node)
+        unknown = set(NETS.get(ref, {})) - set(pin_map)
+        if unknown:
+            raise ValueError(f'{ref}: unknown symbol pins {sorted(unknown)}')
+        if ref == 'U1':
+            for pad, function in MCU_FUNCTIONS.items():
+                if pin_map[pad][0] != function:
+                    raise ValueError(f'STM32 pad {pad}: expected {function}, got {pin_map[pad][0]}')
+        properties = [f'(property "Reference" {quote(ref)} (at {x} {y-24} 0) (effects (font (size 1.27 1.27))))',
+                      f'(property "Value" {quote(value)} (at {x} {y-21} 0) (effects (font (size 1.27 1.27))))']
+        footprint = FOOTPRINTS.get(ref) or next((json.loads(p[2]) for p in node if isinstance(p, list) and p[0] == 'property' and p[1] == '"Footprint"'), '')
+        if footprint:
+            properties.append(f'(property "Footprint" {quote(footprint)} (at {x} {y} 0) (effects (font (size 1.27 1.27)) (hide yes)))')
+        parts.append(f'(symbol (lib_id {quote(lib_id)}) (at {x} {y} 0) (unit 1) (in_bom yes) (on_board yes) (dnp no) (uuid {quote(part_id)}) {" ".join(properties)} (instances (project "helix_minimal" (path "/{sheet_id}" (reference {quote(ref)}) (unit 1)))))')
+        for number, (pin_name, (dx, dy, angle)) in pin_map.items():
+            net = NETS.get(ref, {}).get(number)
+            px, py = round(x + float(dx), 4), round(y - float(dy), 4)
+            if net:
+                labels.append(f'(label {quote(net)} (at {px} {py} 0) (effects (font (size 1.0 1.0)) (justify left bottom)) (uuid {uid("label/" + ref + "/" + number)}))')
+            else:
+                labels.append(f'(no_connect (at {px} {py}) (uuid {uid("nc/" + ref + "/" + number)}))')
+    schematic = f'''(kicad_sch (version 20250114) (generator "eeschema") (uuid {quote(sheet_id)})
+      (paper "A3") (title_block (title "Helix minimal vertical slice") (rev "0.1"))
+      (lib_symbols {' '.join(emit(x) for x in library.values())})
+      {' '.join(labels)} {' '.join(parts)})'''
+    (ROOT / 'helix_minimal.kicad_sch').write_text(schematic + '\n')
+    (ROOT / 'helix_minimal.kicad_pro').write_text('{}\n')
+    local = symbol('Helix', 'AP2112K-3.3')
+    local[1] = quote('AP2112K-3.3')
+    (ROOT / 'helix_symbols.kicad_sym').write_text(f'(kicad_symbol_lib (version 20251024) (generator "kicad_symbol_editor") {emit(local)})\n')
+    (ROOT / 'sym-lib-table').write_text('(sym_lib_table (version 7) (lib (name "Helix") (type "KiCad") (uri "${KIPRJMOD}/helix_symbols.kicad_sym") (options "") (descr "Flattened KiCad AP2112K symbol")))\n')
+    print(f'Wrote schematic: {len(parts)} parts, {len(labels)} pin terminations')
+
+
+def check():
+    result = subprocess.run([str(CLI), 'sch', 'erc', '-o', str(ROOT / 'erc.txt'),
+                             str(ROOT / 'helix_minimal.kicad_sch')], cwd=ROOT)
+    report = (ROOT / 'erc.txt').read_text() if (ROOT / 'erc.txt').exists() else ''
+    if result.returncode or '** ERC messages: 0  Errors 0  Warnings 0' not in report:
+        print(report[:5000])
+        raise SystemExit('ERC failed')
+    result = subprocess.run([str(CLI), 'sch', 'export', 'netlist', '-o',
+                             str(ROOT / 'helix_minimal.net'), str(ROOT / 'helix_minimal.kicad_sch')],
+                            cwd=ROOT, capture_output=True, text=True)
+    if result.returncode:
+        raise SystemExit(result.stderr)
+    netlist = parse((ROOT / 'helix_minimal.net').read_text())
+    actual = {}
+    for net in child(netlist, 'nets')[1:]:
+        net_name = json.loads(child(net, 'name')[1]).lstrip('/')
+        actual[net_name] = {(json.loads(child(n, 'ref')[1]), json.loads(child(n, 'pin')[1]))
+                            for n in net if isinstance(n, list) and n[0] == 'node'}
+    # These physical pad assignments are the interface contract with the STM32 and both modules.
+    required = {
+        'SPI_SCK': {('U1', '12'), ('J2', '4'), ('J4', '3')},
+        'SPI_MISO': {('U1', '13'), ('J3', '6'), ('J4', '5')},
+        'SPI_MOSI': {('U1', '14'), ('J2', '3'), ('J4', '4')},
+        'WIZ_CS': {('U1', '11'), ('J2', '5')},
+        'SD_CS': {('U1', '15'), ('J4', '6')},
+        'USB_DM': {('U1', '16'), ('J1', 'A7'), ('J1', 'B7')},
+        'USB_DP': {('U1', '17'), ('J1', 'A6'), ('J1', 'B6')},
+        'VBUS': {('U2', '1'), ('U2', '3'), ('J1', 'A4')},
+        '3V3': {('U2', '5'), ('U1', '4'), ('J3', '2'), ('J3', '3'), ('J4', '1')},
+    }
+    for name, pads in required.items():
+        if not pads <= actual.get(name, set()):
+            raise SystemExit(f'{name}: missing {sorted(pads - actual.get(name, set()))}')
+    print(f'ERC clean; {len(required)} critical nets verified against exported netlist')
+
+
+if __name__ == '__main__':
+    import sys
+    if len(sys.argv) != 2 or sys.argv[1] not in ('make', 'check'):
+        print('Usage: python3 manage.py make|check\nmake: regenerate schematic; check: run KiCad electrical rules')
+        raise SystemExit(2)
+    {'make': make, 'check': check}[sys.argv[1]]()
