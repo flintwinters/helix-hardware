@@ -3,3 +3,5 @@ erc.txt
 *-backups/
 *.kicad_prl
 *.lck
+.history/
+__pycache__/
