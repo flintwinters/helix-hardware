@@ -51,6 +51,10 @@ def uid(key):
 
 
 def symbol(group, name):
+    if (group, name) == ('WIZ850io', 'WIZ850io'):
+        node = child(parse((ROOT / 'vendor/wiz850io/WIZ850io.kicad_sym').read_text()), 'symbol')
+        node[1] = quote(f'{group}:{name}')
+        return node
     if (group, name) == ('Helix', 'STM32C071FBPx'):
         node = child(parse((ROOT / 'symbols' / 'STM32C071FBPx.kicad_sym').read_text()), 'symbol')
         node[1] = quote(f'{group}:{name}')
@@ -194,8 +198,7 @@ SYMBOLS = {
     'U1': ('Helix', 'STM32C071FBPx', 'STM32C071FBP6', 207, 112),
     'J1': ('Connector', 'USB_C_Receptacle_USB2.0_16P', 'USB-C', 48, 80),
     'U2': ('Helix', 'AP2112K-3.3', 'AP2112K-3.3', 121, 75),
-    'J2': ('Connector_Generic', 'Conn_01x06', 'WIZ850io J1', 315, 66),
-    'J3': ('Connector_Generic', 'Conn_01x06', 'WIZ850io J2', 315, 122),
+    'U3': ('WIZ850io', 'WIZ850io', 'WIZ850io', 249, 104),
     'J4': ('Connector_Generic', 'Conn_01x06', '3V3 microSD SPI breakout', 315, 190),
     'J5': ('Connector_Generic', 'Conn_01x05', 'SWD', 75, 190),
     '#PWR01': ('power', 'PWR_FLAG', 'PWR_FLAG', 105, 48),
@@ -220,8 +223,10 @@ NETS = {
            'B5': 'CC2', 'B6': 'USB_DP', 'B7': 'USB_DM', 'B8': None,
            'B9': 'VBUS', 'B12': 'GND', 'SH': 'GND'},
     'U2': {'1': 'VBUS', '2': 'GND', '3': 'VBUS', '5': '3V3'},
-    'J2': {'1': 'GND', '2': 'GND', '3': 'SPI_MOSI', '4': 'SPI_SCK', '5': 'WIZ_CS', '6': 'WIZ_INT'},
-    'J3': {'1': 'GND', '2': '3V3', '3': '3V3', '4': None, '5': 'WIZ_RST', '6': 'SPI_MISO'},
+    # Module pads 1-6 are J1.1-6; pads 7-12 are J2.6-1 on the sourced footprint.
+    'U3': {'1': 'GND', '2': 'GND', '3': 'SPI_MOSI', '4': 'SPI_SCK',
+           '5': 'WIZ_CS', '6': 'WIZ_INT', '7': 'SPI_MISO', '8': 'WIZ_RST',
+           '9': None, '10': '3V3', '11': '3V3', '12': 'GND'},
     'J4': {'1': 'GND', '2': '3V3', '3': 'SPI_MISO', '4': 'SPI_MOSI', '5': 'SPI_SCK', '6': 'SD_CS'},
     'J5': {'1': '3V3', '2': 'SWDIO', '3': 'SWCLK', '4': 'GND', '5': 'NRST'},
     '#PWR01': {'1': 'VBUS'}, '#PWR02': {'1': 'GND'},
@@ -240,8 +245,7 @@ MCU_FUNCTIONS = {'4': 'VDD', '5': 'VSS', '6': 'PF2', '7': 'PA0',
 
 FOOTPRINTS = {
     'J1': 'Connector_USB:USB_C_Receptacle_GCT_USB4110',
-    'J2': 'Connector_PinSocket_2.54mm:PinSocket_1x06_P2.54mm_Vertical',
-    'J3': 'Connector_PinSocket_2.54mm:PinSocket_1x06_P2.54mm_Vertical',
+    'U3': 'Helix:WIZ850io',
     'J4': 'Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical',
     'J5': 'Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical',
 }
@@ -322,7 +326,7 @@ def build():
         local[1] = quote(name)
         local_symbols.append(emit(local))
     (ROOT / 'helix_symbols.kicad_sym').write_text(f'(kicad_symbol_lib (version 20251024) (generator "kicad_symbol_editor") {" ".join(local_symbols)})\n')
-    (ROOT / 'sym-lib-table').write_text('(sym_lib_table (version 7) (lib (name "Helix") (type "KiCad") (uri "${KIPRJMOD}/helix_symbols.kicad_sym") (options "") (descr "Project symbols")))\n')
+    (ROOT / 'sym-lib-table').write_text('(sym_lib_table (version 7) (lib (name "Helix") (type "KiCad") (uri "${KIPRJMOD}/helix_symbols.kicad_sym") (options "") (descr "Project symbols")) (lib (name "WIZ850io") (type "KiCad") (uri "${KIPRJMOD}/vendor/wiz850io/WIZ850io.kicad_sym") (options "") (descr "Imported WIZ850io module symbol")))\n')
     print(f'Wrote schematic: {len(parts)} parts, {len(labels)} pin terminations')
 
 
@@ -371,17 +375,18 @@ def check():
                             for n in net if isinstance(n, list) and n[0] == 'node'}
     # These physical pad assignments are the interface contract with the STM32 and both modules.
     required = {
-        'SPI_SCK': {('U1', '12'), ('J2', '4'), ('J4', '5')},
-        'SPI_MISO': {('U1', '13'), ('J3', '6'), ('J4', '3')},
-        'SPI_MOSI': {('U1', '14'), ('J2', '3'), ('J4', '4')},
-        'WIZ_CS': {('U1', '11'), ('J2', '5')},
-        'WIZ_RST': {('U1', '7'), ('J3', '5'), ('R3', '2')},
-        'WIZ_INT': {('U1', '10'), ('J2', '6')},
+        'SPI_SCK': {('U1', '12'), ('U3', '4'), ('J4', '5')},
+        'SPI_MISO': {('U1', '13'), ('U3', '7'), ('J4', '3')},
+        'SPI_MOSI': {('U1', '14'), ('U3', '3'), ('J4', '4')},
+        'WIZ_CS': {('U1', '11'), ('U3', '5')},
+        'WIZ_RST': {('U1', '7'), ('U3', '8'), ('R3', '2')},
+        'WIZ_INT': {('U1', '10'), ('U3', '6')},
         'SD_CS': {('U1', '15'), ('J4', '6')},
         'USB_DM': {('U1', '16'), ('J1', 'A7'), ('J1', 'B7')},
         'USB_DP': {('U1', '17'), ('J1', 'A6'), ('J1', 'B6')},
         'VBUS': {('U2', '1'), ('U2', '3'), ('J1', 'A4')},
-        '+3V3': {('U2', '5'), ('U1', '4'), ('J3', '2'), ('J3', '3'), ('J4', '2')},
+        '+3V3': {('U2', '5'), ('U1', '4'), ('U3', '10'), ('U3', '11'), ('J4', '2')},
+        'GND': {('U1', '5'), ('U3', '1'), ('U3', '2'), ('U3', '12'), ('J4', '1')},
         'CC1': {('J1', 'A5'), ('R1', '1')},
         'CC2': {('J1', 'B5'), ('R2', '1')},
     }

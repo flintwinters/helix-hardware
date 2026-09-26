@@ -1,9 +1,11 @@
 *.net
 erc.txt
+drc.txt
 *-backups/
 *.kicad_prl
 *.lck
 .history/
+.recovery/
 __pycache__/
 preview.pdf
 preview.png
