@@ -2,7 +2,7 @@
 
 import copy
 import unittest
-from unittest.mock import Mock
+from unittest.mock import patch
 
 import manage
 
@@ -35,13 +35,28 @@ class ComponentLabelLintTest(unittest.TestCase):
         manage.child(reference, 'at')[1] = '500'
         manage.lint_component_labels(self.schematic)
 
-    def test_make_preserves_existing_edits(self):
-        path = Mock()
-        path.exists.return_value = True
-        path.read_text.return_value = 'user edit'
-        with self.assertRaisesRegex(ValueError, 'would overwrite'):
-            manage.write_schematic_if_unmodified(path, 'generated')
-        path.write_text.assert_not_called()
+    def test_repair_changes_only_misplaced_field(self):
+        source = (manage.ROOT / 'helix_minimal.kicad_sch').read_text()
+        part = next(p for p in self.schematic if isinstance(p, list) and p[0] == 'symbol'
+                    and any(isinstance(field, list) and field[:3] == ['property', '"Reference"', '"R1"']
+                            for field in p))
+        old_at = manage.emit(manage.child(next(field for field in part if isinstance(field, list)
+                                               and field[:2] == ['property', '"Reference"']), 'at'))
+        old_field = '"Reference" "R1" ' + old_at
+        displaced = source.replace(old_field, '"Reference" "R1" (at 500 500 0)', 1)
+        self.assertNotEqual(source, displaced)
+        repaired, changes = manage.repair_component_labels(displaced)
+        self.assertEqual(changes, [('R1', 'Reference')])
+        self.assertEqual(repaired, source)
+
+    def test_repair_is_noop_on_valid_schematic(self):
+        source = (manage.ROOT / 'helix_minimal.kicad_sch').read_text()
+        self.assertEqual(manage.repair_component_labels(source), (source, []))
+
+    def test_build_refuses_existing_schematic(self):
+        with patch.object(manage, 'ROOT', manage.ROOT):
+            with self.assertRaisesRegex(SystemExit, 'existing schematic preserved'):
+                manage.build()
 
 
 if __name__ == '__main__':

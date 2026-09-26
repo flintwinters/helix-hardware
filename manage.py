@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate and check the KiCad schematic from one small connection table."""
+"""Check or surgically repair a KiCad schematic; build a new one separately."""
 
 from pathlib import Path
 import json
@@ -111,10 +111,83 @@ def lint_component_labels(schematic):
         raise ValueError('\n'.join(problems))
 
 
-def write_schematic_if_unmodified(path, schematic):
-    if path.exists() and path.read_text() != schematic:
-        raise ValueError('Schematic has local edits; make would overwrite them. Edit the existing schematic directly.')
-    path.write_text(schematic)
+def top_level_symbols(source):
+    """Yield byte spans of placed symbols, leaving all other KiCad text untouched."""
+    depth = 0
+    start = None
+    quoted = escaped = False
+    for index, char in enumerate(source):
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char == '(':
+            if depth == 1:
+                start = index
+            depth += 1
+        elif char == ')':
+            depth -= 1
+            if depth == 1 and start is not None:
+                block = source[start:index + 1]
+                if re.match(r'\(symbol(?:\s|\()', block):
+                    yield start, index + 1, block
+                start = None
+
+
+def repair_component_labels(source):
+    """Move only visibly misplaced Reference/Value coordinates in placed symbols."""
+    schematic = parse(source)
+    library = {json.loads(node[1]): node for node in child(schematic, 'lib_symbols')[1:]
+               if isinstance(node, list) and node[0] == 'symbol'}
+    edits = []
+    for start, end, block in top_level_symbols(source):
+        part = parse(block)
+        lib_id = json.loads(child(part, 'lib_id')[1])
+        x, y = map(float, child(part, 'at')[1:3])
+        pin_positions = [position for _, position in pins(library[lib_id]).values()]
+        half_width = max((abs(float(p[0])) for p in pin_positions), default=0)
+        half_height = max((abs(float(p[1])) for p in pin_positions), default=0)
+        properties = {json.loads(p[1]): p for p in part
+                      if isinstance(p, list) and p[0] == 'property'}
+        ref = json.loads(properties['Reference'][2])
+        for name, offset in (('Reference', 2.54), ('Value', 5.08)):
+            prop = properties[name]
+            effects = child(prop, 'effects')
+            if any(isinstance(item, list) and item[:2] == ['hide', 'yes']
+                   for item in prop + effects):
+                continue
+            px, py = map(float, child(prop, 'at')[1:3])
+            if math.hypot(max(abs(px - x) - half_width, 0),
+                          max(abs(py - y) - half_height, 0)) <= 7.62:
+                continue
+            pattern = (r'\(property\s+"' + name +
+                       r'"\s+"(?:\\.|[^"\\])*"\s*\(at\s+[^()]*\)')
+            match = re.search(pattern, block)
+            if not match:
+                raise ValueError(f'{ref} {name}: cannot locate field coordinates')
+            at_match = re.search(r'\(at\s+[^()]*\)$', match.group())
+            original = at_match.group()
+            angle = child(prop, 'at')[3]
+            replacement = f'(at {x:g} {y-half_height-offset:g} {angle})'
+            edits.append((start + match.start() + at_match.start(),
+                          start + match.start() + at_match.end(), replacement, ref, name))
+    for first, last, replacement, _, _ in reversed(edits):
+        source = source[:first] + replacement + source[last:]
+    return source, [(ref, name) for _, _, _, ref, name in edits]
+
+
+def repair():
+    path = ROOT / 'helix_minimal.kicad_sch'
+    source = path.read_text()
+    fixed, changes = repair_component_labels(source)
+    if changes:
+        path.write_text(fixed)
+    print(f'Repaired {len(changes)} component labels; other schematic text preserved')
 
 
 SYMBOLS = {
@@ -180,7 +253,9 @@ for ref in SYMBOLS:
 POWER_SYMBOLS = {'GND': 'GND', '3V3': '+3V3', 'VBUS': 'VBUS'}
 
 
-def make():
+def build():
+    if (ROOT / 'helix_minimal.kicad_sch').exists():
+        raise SystemExit('Build creates a new schematic only; existing schematic preserved')
     library = {}
     for group, name, _, _, _ in SYMBOLS.values():
         library[f'{group}:{name}'] = symbol(group, name)
@@ -238,10 +313,7 @@ def make():
       (paper "A3") (title_block (title "Helix minimal vertical slice") (rev "0.1"))
       (lib_symbols {' '.join(emit(x) for x in library.values())})
       {' '.join(wires)} {' '.join(labels)} {' '.join(parts)})'''
-    try:
-        write_schematic_if_unmodified(ROOT / 'helix_minimal.kicad_sch', schematic + '\n')
-    except ValueError as error:
-        raise SystemExit(str(error)) from error
+    (ROOT / 'helix_minimal.kicad_sch').write_text(schematic + '\n')
     if not (ROOT / 'helix_minimal.kicad_pro').exists():
         (ROOT / 'helix_minimal.kicad_pro').write_text('{}\n')
     local_symbols = []
@@ -322,7 +394,7 @@ def check():
 
 if __name__ == '__main__':
     import sys
-    if len(sys.argv) != 2 or sys.argv[1] not in ('make', 'check'):
-        print('Usage: python3 manage.py make|check\nmake: regenerate schematic; check: run KiCad electrical rules')
+    if len(sys.argv) != 2 or sys.argv[1] not in ('build', 'repair', 'check'):
+        print('Usage: python3 manage.py build|repair|check\nbuild: new schematic only; repair: fix misplaced component labels; check: run tests, ERC, and netlist checks')
         raise SystemExit(2)
-    {'make': make, 'check': check}[sys.argv[1]]()
+    {'build': build, 'repair': repair, 'check': check}[sys.argv[1]]()

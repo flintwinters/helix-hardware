@@ -2,7 +2,7 @@
 
 KiCad 10 schematic for a USB powered STM32C071FBP6 with one shared SPI bus. The WIZ850io W5500 module and a **3.3 V, six wire microSD SPI breakout** have separate chip selects. SWD is available for first firmware bring-up.
 
-Open `helix_minimal.kicad_pro` in KiCad. Run `python3 manage.py check` for ERC and physical pad netlist checks. `python3 manage.py make` creates the schematic only when it is absent or unchanged; it stops before overwriting KiCad edits. Generation needs the KiCad 10 symbol library (`KICAD_SYMBOL_DIR` can point to it); the checked-in schematic and local symbols are self-contained. `make` preserves the KiCad project settings.
+Open `helix_minimal.kicad_pro` in KiCad. Run `python3 manage.py check` for label lint, ERC, and physical pad netlist checks. `python3 manage.py repair` fixes misplaced component reference/value fields in the existing schematic without rebuilding it. `python3 manage.py build` creates a schematic only when none exists. Building needs the KiCad 10 symbol library (`KICAD_SYMBOL_DIR` can point to it); the checked-in schematic and local symbols are self-contained.
 
 ## Interfaces
 
