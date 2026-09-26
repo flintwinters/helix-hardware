@@ -1,6 +1,7 @@
 """Regression cases for schematic component text placement."""
 
 import copy
+import re
 import unittest
 from unittest.mock import patch
 
@@ -37,14 +38,9 @@ class ComponentLabelLintTest(unittest.TestCase):
 
     def test_repair_changes_only_misplaced_field(self):
         source = (manage.ROOT / 'helix_minimal.kicad_sch').read_text()
-        part = next(p for p in self.schematic if isinstance(p, list) and p[0] == 'symbol'
-                    and any(isinstance(field, list) and field[:3] == ['property', '"Reference"', '"R1"']
-                            for field in p))
-        old_at = manage.emit(manage.child(next(field for field in part if isinstance(field, list)
-                                               and field[:2] == ['property', '"Reference"']), 'at'))
-        old_field = '"Reference" "R1" ' + old_at
-        displaced = source.replace(old_field, '"Reference" "R1" (at 500 500 0)', 1)
-        self.assertNotEqual(source, displaced)
+        pattern = r'(\(property\s+"Reference"\s+"R1"\s*\(at\s+)[^()]+(\))'
+        displaced, count = re.subn(pattern, r'\g<1>500 500 0\2', source, count=1)
+        self.assertEqual(count, 1)
         repaired, changes = manage.repair_component_labels(displaced)
         self.assertEqual(changes, [('R1', 'Reference')])
         self.assertEqual(repaired, source)
