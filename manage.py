@@ -401,8 +401,9 @@ def check():
 def route():
     """Reroute signals from the current board on a recoverable copy."""
     board = ROOT / 'helix_minimal.kicad_pcb'
-    digest = hashlib.sha256(board.read_bytes()).hexdigest()[:12]
-    work = ROOT / '.recovery' / f'turn_cost_4000_{digest}'
+    project = ROOT / 'helix_minimal.kicad_pro'
+    digest = hashlib.sha256(board.read_bytes() + project.read_bytes()).hexdigest()[:12]
+    work = ROOT / '.recovery' / f'usb_first_{digest}'
     work.mkdir(parents=True, exist_ok=True)
     original = work / 'original.kicad_pcb'
     if not original.exists():
@@ -413,13 +414,13 @@ def route():
     clean = [x for x in tree if not (isinstance(x, list) and x[0] in ('segment', 'via'))]
     source = work / 'clean.kicad_pcb'
     source.write_text(emit(clean) + '\n')
-    shutil.copy2(ROOT / 'helix_minimal.kicad_pro', work / 'clean.kicad_pro')
+    shutil.copy2(project, work / 'clean.kicad_pro')
     stages = [
+        ('usb', ['/USB_DM', '/USB_DP', '/CC1', '/CC2', 'VBUS'], '0.15', False, False),
         ('swclk', ['/SWCLK'], '0.3', True, False),
         ('ordinary', ['+3V3', '/NRST', '/PICO_CS', '/SD_CS', '/SPI_MISO',
                       '/SPI_MOSI', '/SPI_SCK', '/SWDIO', '/WIZ_CS', '/WIZ_INT',
                       '/WIZ_RST'], '0.3', True, False),
-        ('usb', ['/USB_DM', '/USB_DP', '/CC1', '/CC2', 'VBUS'], '0.15', False, False),
         ('miso', ['/SPI_MISO'], '0.3', True, True),
         ('power', ['+3V3'], '0.3', True, True),
     ]
@@ -434,7 +435,7 @@ def route():
                 '--strict-sizes', '--no-fix-drc-settings', '--json-out', str(work / f'{name}.json')]
         if clearance:
             args += ['--clearance', '0.2']
-        if name != 'swclk':
+        if name != 'usb':
             args += ['--keep-input-copper']
         if force:
             args += ['--force-reroute']
@@ -447,6 +448,38 @@ def route():
             raise SystemExit(f'{name}: {failed} failed nets; see {work / f"{name}.log"}')
         print(f'{name}: 0 failed nets')
         source = output
+    shutil.copy2(project, source.with_suffix('.kicad_pro'))
+    report = work / 'candidate_drc.txt'
+    subprocess.run([str(CLI), 'pcb', 'drc', '--refill-zones', '--severity-warning',
+                    '-o', str(report), str(source)], cwd=ROOT, check=True,
+                   capture_output=True, text=True)
+    # The router can leave a tiny dangling stub at an otherwise connected
+    # junction. Remove only stubs KiCad itself identified as dangling and
+    # shorter than half their track width; longer tracks need manual review.
+    dangling = re.findall(r'\[track_dangling\].*?@\(([\d.]+) mm, ([\d.]+) mm\): Track .*?length ([\d.]+) mm',
+                          report.read_text(), re.S)
+    if dangling:
+        tree = parse(source.read_text())
+        for x, y, length in dangling:
+            candidates = []
+            for item in tree:
+                if not isinstance(item, list) or item[0] != 'segment':
+                    continue
+                start = child(item, 'start')
+                end = child(item, 'end')
+                width = float(child(item, 'width')[1])
+                actual = math.hypot(float(start[1]) - float(end[1]),
+                                    float(start[2]) - float(end[2]))
+                at = any(abs(float(point[1]) - float(x)) < 1e-4 and
+                         abs(float(point[2]) - float(y)) < 1e-4
+                         for point in (start, end))
+                if at and abs(actual - float(length)) < 1e-4 and actual < width / 2:
+                    candidates.append(item)
+            if len(candidates) != 1:
+                raise SystemExit(f'Cannot safely clean dangling track at ({x}, {y}); see {report}')
+            tree.remove(candidates[0])
+        source.write_text(emit(tree) + '\n')
+        print(f'Removed {len(dangling)} KiCad-confirmed tiny dangling stub(s)')
     print(f'Candidate: {source}')
 
 
