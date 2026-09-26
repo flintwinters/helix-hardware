@@ -437,6 +437,58 @@ def check():
           f'{len(required)} critical nets verified against exported netlist')
 
 
+def audit():
+    """Run full DRC and compare every placed copper pad with the exported schematic."""
+    check()
+    board = ROOT / 'helix_minimal.kicad_pcb'
+    output = ROOT / '.recovery' / 'audit'
+    output.mkdir(parents=True, exist_ok=True)
+    report = output / 'drc_all.txt'
+    result = subprocess.run([str(CLI), 'pcb', 'drc', '--refill-zones',
+                             '--all-track-errors', '--schematic-parity', '--severity-all',
+                             '-o', str(report), str(board)], cwd=ROOT,
+                            capture_output=True, text=True)
+    if result.returncode:
+        raise SystemExit(result.stderr or result.stdout)
+    netlist = parse((ROOT / 'helix_minimal.net').read_text())
+    expected = {}
+    for net in child(netlist, 'nets')[1:]:
+        name = json.loads(child(net, 'name')[1])
+        for node in net:
+            if isinstance(node, list) and node[0] == 'node':
+                expected[(json.loads(child(node, 'ref')[1]),
+                          json.loads(child(node, 'pin')[1]))] = name
+    actual = {}
+    for footprint in (item for item in parse(board.read_text())
+                      if isinstance(item, list) and item[0] == 'footprint'):
+        ref = json.loads(next(item[2] for item in footprint
+                              if isinstance(item, list) and item[:2] == ['property', '"Reference"']))
+        for pad in (item for item in footprint
+                    if isinstance(item, list) and item[0] == 'pad'):
+            number = json.loads(pad[1])
+            net = next((json.loads(item[-1]) for item in pad
+                        if isinstance(item, list) and item[0] == 'net' and len(item) > 1), None)
+            if not number and net is None:  # mechanical NPTH alignment holes
+                continue
+            key = (ref, number)
+            if key in actual and actual[key] != net:
+                raise SystemExit(f'{ref}.{number}: conflicting duplicate pad nets')
+            actual[key] = net
+    mismatches = [(key, expected.get(key), actual.get(key)) for key in expected.keys() | actual.keys()
+                  if key not in expected or key not in actual or expected[key] != actual[key]]
+    if mismatches:
+        raise SystemExit(f'PCB/schematic pad mismatch: {mismatches[:10]}')
+    drc = report.read_text()
+    violations = re.findall(r'^\[([^]]+)\]:', drc, re.M)
+    opens = re.search(r'^\*\* Found (\d+) unconnected pads', drc, re.M)
+    footprint_errors = re.search(r'^\*\* Found (\d+) Footprint errors', drc, re.M)
+    if not opens or not footprint_errors:
+        raise SystemExit(f'Unexpected DRC report format: {report}')
+    print(f'PCB: {len(actual)} pad nets match schematic; full DRC: '
+          f'{len(violations)} violations, {opens[1]} opens, '
+          f'{footprint_errors[1]} footprint errors. See {report.relative_to(ROOT)}')
+
+
 def route():
     """Reroute signals from the current board on a recoverable copy."""
     board = ROOT / 'helix_minimal.kicad_pcb'
@@ -531,7 +583,7 @@ def route():
 
 if __name__ == '__main__':
     import sys
-    if len(sys.argv) != 2 or sys.argv[1] not in ('build', 'repair', 'check', 'route'):
-        print('Usage: python3 manage.py build|repair|check|route\nbuild: new schematic only; repair: fix misplaced component labels; check: run tests, ERC, and netlist checks; route: reroute signals on a recoverable copy')
+    if len(sys.argv) != 2 or sys.argv[1] not in ('build', 'repair', 'check', 'audit', 'route'):
+        print('Usage: python3 manage.py build|repair|check|audit|route\nbuild: new schematic only; repair: fix misplaced labels; check: tests, ERC, critical nets; audit: check plus full DRC and every PCB pad net; route: reroute on a recoverable copy')
         raise SystemExit(2)
-    {'build': build, 'repair': repair, 'check': check, 'route': route}[sys.argv[1]]()
+    {'build': build, 'repair': repair, 'check': check, 'audit': audit, 'route': route}[sys.argv[1]]()

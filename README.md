@@ -2,7 +2,7 @@
 
 KiCad 10 schematic for a USB powered STM32C071FBP6 with one shared SPI bus. The WIZ850io W5500 module and a **3.3 V, six wire microSD SPI breakout** have separate chip selects. SWD is available for first firmware bring-up.
 
-Open `helix_minimal.kicad_pro` in KiCad. Run `python3 manage.py check` for label lint, ERC, and physical pad netlist checks. `python3 manage.py repair` fixes misplaced component reference/value fields in the existing schematic without rebuilding it. `python3 manage.py build` creates a schematic only when none exists. Building needs the KiCad 10 symbol library (`KICAD_SYMBOL_DIR` can point to it); the checked-in schematic and local symbols are self-contained.
+Open `helix_minimal.kicad_pro` in KiCad. Run `python3 manage.py check` for label lint, ERC, and critical nets, or `python3 manage.py audit` for full DRC and every PCB pad net. The [PCB audit](docs/pcb_audit.md) records datasheet mappings and remaining risks. `python3 manage.py repair` fixes misplaced component reference/value fields in the existing schematic without rebuilding it. `python3 manage.py build` creates a schematic only when none exists. Building needs the KiCad 10 symbol library (`KICAD_SYMBOL_DIR` can point to it); the checked-in schematic and local symbols are self-contained.
 
 ## PCB routing
 
@@ -10,7 +10,7 @@ The PCB uses pinned [KiCadRoutingTools](https://github.com/drandyhaas/KiCadRouti
 
 After manually connecting `/USB_DP` and `/USB_DM`, run `python3 manage.py route` on a preserved board. It removes other top-level tracks and vias from a working copy while retaining the manual USB copper, footprints, and both GND zones. It refuses to start until both USB data nets have copper, excludes them and GND from every autorouter net list, and verifies that their copper geometry survives the route. It routes CC1/CC2/VBUS first at 0.15 mm width, then SWCLK and the other ordinary nets at 0.30/0.20 mm. The USB pass omits `--clearance` so the router honors the 0.20 mm clearance against ordinary nets. It force-reroutes SPI MISO at 0.30 mm to remove the router's multipoint narrow taper, then force-reroutes +3V3 to remove a dangling via observed in the earlier 4000 turn-cost run. All passes use `--via-cost 300 --turn-cost 4000 --same-net-pad-clearance 0.1 --grid-step 0.05 --via-size 0.4 --via-drill 0.2 --escalation off --strict-sizes --no-fix-drc-settings`. Check actual segment widths, pad/via overlap, and KiCad DRC before replacing the board.
 
-KiCad DRC reports no signal routing or thermal-relief violations and zero schematic parity issues. Two GND connections remain for manual review; 18 text-height warnings remain. Review the WIZ850io mechanics before fabrication.
+KiCad DRC reports no signal routing or thermal-relief violations and zero schematic parity issues. Two GND connections remain for manual review; 18 text-height warnings remain. The WIZ850io module body overlaps H3, R3, and R4 in a mechanical courtyard probe; resolve its assembly height and mechanical clearance before fabrication. J6 has SWCLK where an SPI accessory would need SCK.
 
 The current route uses a 4000 turn cost. It has 190 track segments and 12 vias; all 24 manually drawn USB data copper items were preserved exactly. Its input and intermediate boards are recoverable in `.recovery/` if needed.
 
@@ -26,7 +26,7 @@ The current route uses a 4000 turn cost. It has 190 track segments and 12 vias; 
 
 J4 is a **project-defined jumper header**, not a claimed footprint for a particular SD module: 1=GND, 2=3V3, 3=SO/MISO, 4=SI/MOSI, 5=CLK, 6=CS. Check the chosen breakout's physical pin order before wiring it. U3 combines WIZ850io J1 pins 1–6 with J2 pins 6–1 as footprint pads 1–12. Its board placement remains subject to DRC and mechanical review. Firmware should hold WIZ_RST low for at least 500 µs, then wait 50 ms after release before SPI access. Keep both CS lines high while neither device is selected.
 
-The USB-C receptacle uses separate 5.1 kΩ CC pull-downs and a 3.3 V AP2112K regulator. C1 and C2 are the regulator's required 1 µF input/output capacitors; C3 is the MCU's 100 nF decoupling capacitor. VBUS, +3V3, and GND use KiCad power symbols connected by wires. The PCB is still being placed and routed; there is no enclosure, firmware, USB ESD protection, or measured power budget. WIZ850io can draw about 141 mA by itself, so USB bus power behavior before configuration needs design review before claiming USB compliance.
+The USB-C receptacle uses separate 5.1 kΩ CC pull-downs and a 3.3 V AP2112K regulator. C1 and C2 are the regulator's required 1 µF input/output capacitors; C3 is the MCU's 100 nF decoupling capacitor. VBUS, +3V3, and GND use KiCad power symbols connected by wires. There is no enclosure, firmware, USB ESD protection, or measured power budget. WIZ850io can draw about 141 mA by itself, so USB bus power behavior before configuration needs design review before claiming USB compliance.
 
 ## Source catalog
 
