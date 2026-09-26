@@ -5,3 +5,5 @@ The KiCad schematic is generated from the connection table in `manage.py`; `pyth
 Current job: validate module choice, USB power behavior, and mechanics before designing a PCB; then prove the interface with firmware and hardware measurements.
 Schematic components must be connected with wires and use proper power symbols not just a 'GND' label.
 Use python to procedurally place and connect components rather than doing it manually.
+
+Verify with kicad-cli erc and drc
